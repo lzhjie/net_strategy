@@ -1,0 +1,17 @@
+{
+    "charset":"utf-8",
+    "datadir": "",
+    "alarmdelay":0.05,
+    "acktimeout":5,
+    "interval":1,
+    "checkpoint":{"file":"checkpoint.csv", "field":"name,ip,device,alarmdelay"},
+    "device":{"file":"device.csv", "field":"name,ip:eth_ip,price"},
+    "costfunc":{
+        "params_readonly":"m{d_price,lost,disconect,last_delay,delay_count,total_delay,cost,ping_times}", 
+        "cost":"m.disconect*100 + m.last_delay + m.d_price + m.lost"
+    },
+    "httpserver":{
+        "bindip":"127.0.0.1",
+        "port":8787
+    }
+}
