@@ -3,6 +3,10 @@
 > pip install -r requirements.txt
 
 - config: modify conf/*
+- run
+> python main.py  
+  python service.py start|stop|restart [params]
+
 - help
 > python main.py --help
 

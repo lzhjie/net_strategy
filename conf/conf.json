@@ -1,5 +1,4 @@
 {
-    "charset":"utf-8",
     "datadir": "",
     "alarmdelay":0.05,
     "acktimeout":5,
@@ -7,8 +6,8 @@
     "checkpoint":{"file":"checkpoint.csv", "field":"name,ip,device,alarmdelay"},
     "device":{"file":"device.csv", "field":"name,ip:eth_ip,price"},
     "costfunc":{
-        "params_readonly":"m{d_price,lost,disconect,last_delay,delay_count,total_delay,cost,ping_times}", 
-        "cost":"m.disconect*100 + m.last_delay + m.d_price + m.lost"
+        "params_readonly":"m{d_price,lost,disconect,timeouts,c_alarmdelay,last_delay,delay_count,total_delay,cost,ping_times}", 
+        "cost":"m.disconect*100 + min(m.last_delay/m.c_alarmdelay, 50) + m.d_price + float(m.lost)/m.ping_times*50 - (m.timeouts-m.disconect)"
     },
     "httpserver":{
         "bindip":"127.0.0.1",

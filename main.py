@@ -1,14 +1,13 @@
 # coding: utf-8
 # Copyright (C) zhongjie luo <l.zhjie@qq.com>
+from thirdparty.Options import Options, Option
 from load_conf import Conf
 from ping_service import PingService, PingEvent
 import pandas as pd
 import numpy as np
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 import thread
-from thirdparty.Options import Options, Option
 import sys
-
 
 pd.set_option('display.max_columns', 0)
 pd.set_option('display.width', 0)
@@ -19,7 +18,7 @@ def cost_func(m):
     return m.disconect * 100 + m.last_delay + m.d_price + m.lost
 
 
-class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
+class MyPingEvent(PingEvent):
     def __init__(self, conf, alarm_delay=0.05):
         super(MyPingEvent, self).__init__(alarm_delay)
         self._extra_dtypes = {
@@ -37,16 +36,15 @@ class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
         self.__conf = conf
         self.__measure_readonly = None
         self.__charset = conf.charset()
+        self.__reset_flag = False
 
-    def reset_measure(self):
+    def _reset_measure(self):
         self._ping_times = 0
         for k, v in self._extra_dtypes.items():
             self.__measure[k] = v(0)
 
-    def export(self, reset=True):
+    def export(self):
         temp = self.stat()
-        if reset is True:
-            self.reset_measure()
         temp.reset_index(inplace=True)
         temp.sort_values("cost", inplace=True)
         temp.drop_duplicates(["c_ip"], inplace=True)
@@ -61,16 +59,19 @@ class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
         temp.charset = self.__charset
         return temp
 
+    def reset(self):
+        self.__reset_flag = True
+
     def healthy(self):
         temp = self.stat()
-        temp = temp[(temp.total_delay==0) & (temp.lost==0) & (temp.timeouts==0)].copy()
+        temp = temp[(temp.total_delay == 0) & (temp.lost == 0) & (temp.timeouts == 0)].copy()
         temp.sort_values("cost", inplace=True)
         temp.reset_index(inplace=True)
         return temp
 
     def unhealthy(self):
         temp = self.stat()
-        temp = temp[(temp.total_delay>0) | (temp.lost>0) | (temp.timeouts>0)].copy()
+        temp = temp[(temp.total_delay > 0) | (temp.lost > 0) | (temp.timeouts > 0)].copy()
         temp.sort_values("cost", inplace=True)
         temp.reset_index(inplace=True)
         return temp
@@ -95,6 +96,9 @@ class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
         # PingEvent.e_recover(self, d_ip, c_ip, seq)
 
     def e_seqnotify(self, seq, time_):
+        if self.__reset_flag == True:
+            self.__reset_flag = False
+            self._reset_measure()
         self.__measure_readonly = self.__measure.copy()
         self._ping_times += 1
         # PingEvent.e_seqnotify(self, seq, time_)
@@ -121,7 +125,8 @@ class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
         measure["disconect"] = 0  # timeout +1, recover -1
         measure.set_index(["c_ip", "d_ip"], inplace=True)
         self.__measure = measure
-        self.reset_measure()
+        self._reset_measure()
+        self.__measure_readonly = self.__measure.copy()
 
         if self._cost_str:
             self._cost_func = eval(compile(self._cost_str, "", "eval"))
@@ -130,6 +135,7 @@ class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
 
         self._http = self.__conf.httpserver()
         server = HTTPServer(self._http, EventHttpHandler)
+
         def thread_func():
             while 1:
                 try:
@@ -138,6 +144,7 @@ class MyPingEvent(PingEvent, BaseHTTPRequestHandler):
                     return
                 except:
                     print sys.exc_info()[0]
+
         thread.start_new_thread(thread_func, tuple())
         print("start httpserver: %s %d" % self._http)
         MyPingEvent.context = self
@@ -164,27 +171,59 @@ class EventHttpHandler(BaseHTTPRequestHandler):
         "healthy": MyPingEvent.healthy,
         "unhealthy": MyPingEvent.unhealthy
     }
+    html_template = """
+<html>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+    <a href="reset">reset</a>&nbsp;&nbsp;&nbsp;&nbsp;
+    <input id="fresh" type="checkbox" checked=true>auto fresh 5s</input>
+    <script type="text/javascript">
+        fresh = document.getElementById("fresh");
+        var checked = fresh.checked
+        var t1 = window.setInterval(function(){{window.location.href=window.location.href}},5000); 
+        fresh.addEventListener(
+            'click',
+            function(){{
+                if (checked != fresh.checked) {{
+                    checked = fresh.checked
+                    if ( checked == false ) {{
+                        window.clearInterval(t1); 
+                    }}
+                    else {{
+                        t1 = window.setInterval(function(){{window.location.href=window.location.href}},5000); 
+                    }}
+                }}
+            }},
+            false);
+    </script>
+    {data}
+</html>
+    """
     types = {
-        "html": lambda x: '<html>\n  <meta http-equiv="content-type" content="text/html; charset=utf-8"/>\n'+
-                          pd.DataFrame.to_html(x, float_format='%.3f').encode("utf-8") + '</html>',
+        "html": lambda x: EventHttpHandler.html_template.format(
+            data=pd.DataFrame.to_html(x, float_format='%.3f').encode("utf-8")),
         "json": lambda x: pd.DataFrame.to_json(x, double_precision=3),
         "csv": lambda x: pd.DataFrame.to_csv(x, float_format='%.3f', encoding=x.charset),
     }
-    surports = [".".join((x,y)) for x in funcs.keys() for y in types.keys()]
-    surports_html = '<html>\n'\
+    surports = [".".join((x, y)) for x in funcs.keys() for y in types.keys()]
+    surports.append("reset")
+    surports_html = '<html>\n' \
                     '  <meta http-equiv="content-type" content="text/html; charset=utf-8"/>\n' \
-                    '  <body>\n%s\n</body></html>'% \
+                    '  <body>\n%s\n</body></html>' % \
                     ("<br/>\n".join(['<a href="%s">%s</a>' % (x, x) for x in surports]))
+
     def do_GET(self):
         if MyPingEvent.context is None:
             self.send_response(500)
             return
-        temp = self.path.split(".")
+        temp = self.path.split("/")[-1]
+        temp = temp.split(".")
         if len(temp) == 2:
             func, type = temp
-            func = func.split("/")[-1]
-            type = type.split("/")[0]
         else:
+            if temp[0] == "reset":
+                MyPingEvent.context.reset()
+                self.send_response(204)
+                return
             self.send_response(200)
             self.send_header('Content-type', 'text/html')
             self.end_headers()
@@ -203,12 +242,13 @@ class EventHttpHandler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header('Content-type', 'text/%s' % (type))
+        self.send_header('Cache-Control', 'max-age=1')
         self.end_headers()
         self.wfile.write(f_type(f_func(MyPingEvent.context)))
         return
 
 
-if __name__ == "__main__":
+def do_main():
     options = (
         Option("config", "c", "conf/conf.json"),
         Option("interval", "i", 1),
@@ -229,3 +269,7 @@ if __name__ == "__main__":
     s.start()
     del conf
     s.join()
+
+
+if __name__ == "__main__":
+    do_main()

@@ -21,7 +21,13 @@ class PingEvent(object):
 
     def __init__(self, alarm_delay=0.05):
         self._alarm_delay = alarm_delay
-        pass
+        self._events = [
+            self.e_timeout,
+            self.e_delay,
+            self.e_lost,
+            self.e_recover,
+            self.e_seqnotify,
+        ]
 
     def init_in_subprocess(self):
         raise NotImplementedError()
@@ -45,6 +51,9 @@ class PingEvent(object):
     def e_seqnotify(self, seq, time_):
         t = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         print("%s seqnotify, %d" % (t, seq))
+
+    def _proc_event(self, event_id, args):
+        self._events[event_id](*args)
 
     def exit(self):
         print "exit"
@@ -79,6 +88,7 @@ class PingService(Process):
         self.__event_obj = ping_event
         self.__event_q = Queue(2048)
         self.__event_service = EventService(self.__event_q, self.__event_obj)
+        self.daemon = True
 
     def start(self):
         super(PingService, self).start()
@@ -235,7 +245,7 @@ class PingService(Process):
                 if item.sendto(p, (ip, 0)) != len(p):
                     time.sleep(0.01)
                     item.sendto(p, (ip, 0))
-                # print "send ", ip, id, s_seq
+                    # print "send ", ip, id, s_seq
 
 
 class EventService(Process):
@@ -243,22 +253,16 @@ class EventService(Process):
         super(EventService, self).__init__()
         self.__queue = queue
         self.__ping_event = ping_event
+        self.daemon = True
 
     def run(self):
         queue = self.__queue
         ping_event = self.__ping_event
-        events = [
-            ping_event.e_timeout,
-            ping_event.e_delay,
-            ping_event.e_lost,
-            ping_event.e_recover,
-            ping_event.e_seqnotify,
-        ]
         ping_event.init_in_subprocess()
         while 1:
             try:
                 event_id, params = queue.get(True, 60)
-                events[event_id](*params)
+                ping_event._proc_event(event_id, params)
             except (SystemExit, KeyboardInterrupt):
                 ping_event.exit()
                 return
@@ -285,7 +289,7 @@ def packet(id, seq):
     header = struct.pack("!bbHHH", ICMP_ECHO_REQUEST, 0, my_checksum, id, seq)
     bytesInDouble = struct.calcsize("d")
     data_len = 56 - bytesInDouble
-    data = data_len *"Q" # (192  - bytesInDouble) * "Q"
+    data = data_len * "Q"  # (192  - bytesInDouble) * "Q"
     data = struct.pack("d", default_timer()) + data
     my_checksum = checksum(header + data)
     header = struct.pack(
