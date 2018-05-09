@@ -86,7 +86,7 @@ class PingService(Process):
         self.__last_ping_time = 0
         self.__timeout_seq = max(1, (timeout + interval - 1) / interval)
         self.__event_obj = ping_event
-        self.__event_q = Queue(2048)
+        self.__event_q = Queue()
         self.__event_service = EventService(self.__event_q, self.__event_obj)
         self.daemon = True
 
@@ -120,8 +120,8 @@ class PingService(Process):
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                 else:
-                    print("warning, overload!!!, skip one round")
-                    time.sleep(inv)
+                    print("warning, overload!!!, skip one round, %d" % (ping_counter))
+                    time.sleep(inv - ((-sleep_time)%inv))
                     ping_counter = int(pass_time / inv)
 
             except (SystemExit, KeyboardInterrupt):
@@ -173,13 +173,14 @@ class PingService(Process):
                                 print "unkown ip", dest_ip
                                 continue
                             r_seq = r_seqs[id_, socket_id]
-                            if seq - r_seq > 1:
-                                e_queue.put((eid_lost, (socket_ip, dest_ip, seq, seq - r_seq - 1)), False)
+                            seq_passed = ctypes.c_uint16(seq - r_seq).value
+                            if seq_passed > 1:
+                                e_queue.put((eid_lost, (socket_ip, dest_ip, seq, seq_passed - 1)), False)
                                 if timeout[id_, socket_id] == 1:
                                     e_queue.put((eid_recover, (socket_ip, dest_ip, seq)), False)
                                     timeout[id_, socket_id] = 0
                             r_seqs[id_, socket_id] = seq
-                            r_pass_time = pass_time + (seq - r_seq - 1) * inv
+                            r_pass_time = pass_time + (seq_passed - 1) * inv
                             # print("%s: %d bytes from %s: icmp_seq=%d time=%.3f s"
                             #         % (socket_ip, len(recPacket), dest_ip, seq, r_pass_time))
                             d_time = delay_alarm[id_]
@@ -242,10 +243,8 @@ class PingService(Process):
             for j, item in enumerate(self.__sockets):
                 # id 为0时， 可能被修改， 8.8.8.8出现修改的情况
                 p = packet(id + 1, s_seq)
-                if item.sendto(p, (ip, 0)) != len(p):
-                    time.sleep(0.01)
-                    item.sendto(p, (ip, 0))
-                    # print "send ", ip, id, s_seq
+                item.sendto(p, (ip, 0))
+                # print "send ", ip, id, s_seq
 
 
 class EventService(Process):

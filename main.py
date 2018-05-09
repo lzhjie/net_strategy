@@ -34,6 +34,8 @@ class MyPingEvent(PingEvent):
         self._cost_str = conf.cost_lambda_str()
         self.__measure = None
         self.__conf = conf
+        self.__device = None
+        self.__checkpoint = None
         self.__measure_readonly = None
         self.__charset = conf.charset()
         self.__reset_flag = False
@@ -76,6 +78,12 @@ class MyPingEvent(PingEvent):
         temp.reset_index(inplace=True)
         return temp
 
+    def devices(self):
+        return self.__device
+
+    def checkpoint(self):
+        return self.__checkpoint
+
     def e_delay(self, d_ip, c_ip, seq, pass_time, alarm_time):
         self.__measure.at[(c_ip, d_ip), "last_delay"] = pass_time
         self.__measure.at[(c_ip, d_ip), "delay_count"] += 1
@@ -87,12 +95,12 @@ class MyPingEvent(PingEvent):
         # PingEvent.e_lost(self, d_ip, c_ip, seq, num)
 
     def e_timeout(self, d_ip, c_ip, seq, pass_time):
-        self.__measure.at[(c_ip, d_ip), "disconect"] += 1
+        self.__measure.at[(c_ip, d_ip), "disconect"] = 1
         self.__measure.at[(c_ip, d_ip), "timeouts"] += 1
         # PingEvent.e_timeout(self, d_ip, c_ip, seq, pass_time)
 
     def e_recover(self, d_ip, c_ip, seq):
-        self.__measure.at[(c_ip, d_ip), "disconect"] -= 1
+        self.__measure.at[(c_ip, d_ip), "disconect"] = 0
         # PingEvent.e_recover(self, d_ip, c_ip, seq)
 
     def e_seqnotify(self, seq, time_):
@@ -127,6 +135,8 @@ class MyPingEvent(PingEvent):
         self.__measure = measure
         self._reset_measure()
         self.__measure_readonly = self.__measure.copy()
+        self.__checkpoint = self.__conf.checkpoint()
+        self.__device = self.__conf.device()
 
         if self._cost_str:
             self._cost_func = eval(compile(self._cost_str, "", "eval"))
@@ -169,31 +179,19 @@ class EventHttpHandler(BaseHTTPRequestHandler):
         "export": MyPingEvent.export,
         "stat": MyPingEvent.stat,
         "healthy": MyPingEvent.healthy,
-        "unhealthy": MyPingEvent.unhealthy
+        "unhealthy": MyPingEvent.unhealthy,
+        "device": MyPingEvent.devices,
+        "checkpoint": MyPingEvent.checkpoint
     }
     html_template = """
 <html>
     <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
     <a href="reset">reset</a>&nbsp;&nbsp;&nbsp;&nbsp;
-    <input id="fresh" type="checkbox" checked=true>auto fresh 5s</input>
+    <a href="#" onclick="refresh();return false;">reload</a>
     <script type="text/javascript">
-        fresh = document.getElementById("fresh");
-        var checked = fresh.checked
-        var t1 = window.setInterval(function(){{window.location.href=window.location.href}},5000); 
-        fresh.addEventListener(
-            'click',
-            function(){{
-                if (checked != fresh.checked) {{
-                    checked = fresh.checked
-                    if ( checked == false ) {{
-                        window.clearInterval(t1); 
-                    }}
-                    else {{
-                        t1 = window.setInterval(function(){{window.location.href=window.location.href}},5000); 
-                    }}
-                }}
-            }},
-            false);
+        function refresh(){{
+            window.location.reload(true)
+        }}
     </script>
     {data}
 </html>
@@ -264,8 +262,8 @@ def do_main():
                     checkpoint["ip"].values,
                     pg,
                     checkpoint["alarmdelay"].values,
-                    interval=options_.get("interval"),
-                    timeout=options_.get("timeout"))
+                    interval=options_.get("interval", conf.interval()),
+                    timeout=options_.get("timeout", conf.acktimeout()))
     s.start()
     del conf
     s.join()

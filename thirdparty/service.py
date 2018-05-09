@@ -2,6 +2,7 @@
 # Copyright (C) zhongjie luo <l.zhjie@qq.com>
 from daemon import Daemon
 import sys
+import os
 
 
 class MyDaemon(Daemon):
@@ -14,7 +15,7 @@ class MyDaemon(Daemon):
         self.func_()
 
 
-def do_service(func):
+def do_service(func, name):
     if sys.platform in set(["win32"]):
         print("%s unsupport!" % sys.platform)
         exit(-1)
@@ -27,8 +28,9 @@ def do_service(func):
     if target is None:
         print("usage: %s %s [options]" % (sys.argv[0], "|".join(funcs.keys())))
         exit(1)
-
-    service = MyDaemon(func, "net_strategy.pid")
+    if not os.path.exists("/run/python"):
+        os.mkdir("/run/python")
+    service = MyDaemon(func, "/run/python/%s.pid" % name, stdout="/dev/stdout", stderr="/dev/stderr")
     target(service)
 
 
