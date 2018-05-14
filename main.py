@@ -175,6 +175,7 @@ class EventHttpHandler(BaseHTTPRequestHandler):
     'send_error', 'send_header', 'send_response', 'server', 'server_version', 'setup', 
     'sys_version', 'timeout', 'types', 'version_string', 'wbufsize', 'weekdayname', 'wfile']
     """
+    timeout = 1
     funcs = {
         "export": MyPingEvent.export,
         "stat": MyPingEvent.stat,
